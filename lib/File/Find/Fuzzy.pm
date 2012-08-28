@@ -6,6 +6,7 @@ use MooseX::Types::Moose 'Num';
 use MooseX::Types::Path::Class;
 use Moose::Util::TypeConstraints;
 
+use List::MoreUtils 'natatime';
 use Path::Class::Rule;
 
 use constant STOP => 1;
@@ -59,7 +60,7 @@ sub search {
             join '([^/]*?)', map { "(" . quotemeta . ")" } split //
         } @path_parts) . '(.*?)$';
 
-    warn $pattern_re;                 # for debugging
+    # warn $pattern_re;                 # for debugging
     my $file_re = qr/$pattern_re/i;
 
     for my $file ($self->list_files) {
@@ -70,7 +71,24 @@ sub search {
             my @matches = map { substr $filename, $-[$_], $+[$_] - $-[$_] } 1..$#-;
 
             use Data::Dump;
-            dd { $filename => \@matches };
+            # dd { $filename => \@matches };
+
+            my $it = natatime 2, @matches;
+
+            my @runs;
+            while(my ($not_matched, $matched) = $it->()) {
+                if(length($not_matched) > 0 || !@runs) {
+                    push @runs, $not_matched;
+                    push @runs, { match => $matched }
+                        if defined $matched;
+                }
+                else {
+                    $runs[-1]{match} .= $matched
+                        if defined $matched;
+                }
+            }
+
+            dd \@runs;
 
 
             # last if $cb->($file) == STOP;
@@ -79,6 +97,7 @@ sub search {
 
     # the important question is how to score a match
 
+    warn "----\n";
 }
 
 sub find {
