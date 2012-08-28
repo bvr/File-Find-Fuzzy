@@ -6,6 +6,8 @@ use MooseX::Types::Moose 'Num';
 use MooseX::Types::Path::Class;
 use Moose::Util::TypeConstraints;
 
+use Path::Class::Rule;
+
 use constant STOP => 1;
 
 subtype 'DirArray'
@@ -17,10 +19,23 @@ coerce 'DirArray'
 
 no Moose::Util::TypeConstraints;
 
-has directories => (is => 'rw', isa => 'DirArray', coerce => 1, default => sub { ['.'] });
 has ceiling => (is => 'ro', isa => Num, default => 10_000);
 
-has finder => (is => 'ro', isa => 'Path::Class::Rule');
+has directories => (
+    is      => 'rw',
+    traits  => ['Array'],
+    isa     => 'DirArray',
+    coerce  => 1,
+    default => sub { ['.'] },
+    handles => {list_directories => 'elements'},
+);
+
+has finder => (
+    is      => 'ro',
+    isa     => 'Path::Class::Rule',
+    default => sub { Path::Class::Rule->new->file->skip_vcs },
+);
+
 has files => (
     is      => 'rw',
     traits  => ['Array'],
@@ -41,15 +56,24 @@ sub search {
     $pattern =~ tr/ //d;
     my @path_parts = split m{/}, $pattern, -1;  # keep also trailing field
     my $pattern_re = '^(.*?)' . (join '(.*?/.*?)', map {
-            join '([^/]*?)', map { quotemeta } split //
+            join '([^/]*?)', map { "(" . quotemeta . ")" } split //
         } @path_parts) . '(.*?)$';
 
-    # warn $pattern_re;                 # for debugging
+    warn $pattern_re;                 # for debugging
     my $file_re = qr/$pattern_re/i;
 
     for my $file ($self->list_files) {
-        if($file->as_foreign('Unix') =~ /$file_re/) {
-            last if $cb->(make_match($file)) == STOP;
+        my $filename = '' . $file->as_foreign('Unix');
+        warn "testing $filename\n";
+        if($filename =~ /$file_re/) {
+            # scan @- and @+ to get text of all matches
+            my @matches = map { substr $filename, $-[$_], $+[$_] - $-[$_] } 1..$#-;
+
+            use Data::Dump;
+            dd { $filename => \@matches };
+
+
+            # last if $cb->($file) == STOP;
         }
     }
 
