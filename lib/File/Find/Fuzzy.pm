@@ -8,6 +8,7 @@ use Moose::Util::TypeConstraints;
 
 use List::MoreUtils 'natatime';
 use Path::Class::Rule;
+use Data::Dump;
 
 use constant STOP => 1;
 
@@ -54,15 +55,22 @@ sub _build_files {
 sub search {
     my ($self, $pattern, $cb) = @_;
 
+    # build matching regex
     $pattern =~ tr/ //d;
     my @path_parts = split m{/}, $pattern, -1;  # keep also trailing field
-    my $pattern_re = '^(.*?)' . (join '(.*?/.*?)', map {
-            join '([^/]*?)', map { "(" . quotemeta . ")" } split //
-        } @path_parts) . '(.*?)$';
-
-    # warn $pattern_re;                 # for debugging
+    my $pattern_re =
+        '^(.*?)'                    # start
+      . (join '(.*?/.*?)',          # between path parts
+            map {
+                join '([^/]*?)',    # between expected chars
+                                    # each char escaped capture
+                    map { "(\Q$_\E)" } split //
+                } @path_parts
+        )
+      . '(.*?)$';                   # end
     my $file_re = qr/$pattern_re/i;
 
+    # find matching files
     for my $file ($self->list_files) {
         my $filename = '' . $file->as_foreign('Unix');
         warn "testing $filename\n";
@@ -70,21 +78,21 @@ sub search {
             # scan @- and @+ to get text of all matches
             my @matches = map { substr $filename, $-[$_], $+[$_] - $-[$_] } 1..$#-;
 
-            use Data::Dump;
             # dd { $filename => \@matches };
 
             my $it = natatime 2, @matches;
 
             my @runs;
             while(my ($not_matched, $matched) = $it->()) {
-                if(length($not_matched) > 0 || !@runs) {
-                    push @runs, $not_matched;
-                    push @runs, { match => $matched }
-                        if defined $matched;
-                }
-                else {
-                    $runs[-1]{match} .= $matched
-                        if defined $matched;
+
+                # non-matched part push as a text
+                push @runs, $not_matched
+                    if length $not_matched > 0;
+
+                # matched either add to previous or create new block
+                if(defined $matched) {
+                    if(ref $runs[-1]) { $runs[-1]{match} .= $matched      }
+                    else              { push @runs, { match => $matched } }
                 }
             }
 
