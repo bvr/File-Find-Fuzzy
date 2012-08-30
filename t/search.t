@@ -4,7 +4,7 @@ use Data::Dump;
 
 use File::Find::Fuzzy;
 
-my $finder = File::Find::Fuzzy->new(directories => ['.']);
+my $finder = File::Find::Fuzzy->new(directories => [ '.' ]);
 ok $finder, 'object created';
 
 $finder->search('dir', sub {});

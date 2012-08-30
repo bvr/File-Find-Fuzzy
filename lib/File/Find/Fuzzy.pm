@@ -28,7 +28,7 @@ has directories => (
     traits  => ['Array'],
     isa     => 'DirArray',
     coerce  => 1,
-    default => sub { ['.'] },
+    default => sub { [] },
     handles => {list_directories => 'elements'},
 );
 
@@ -62,17 +62,17 @@ sub search {
 
     # find matching files
     for my $file ($self->list_files) {
+        $file->resolve;
         my $filename = '' . $file->as_foreign('Unix');
         warn "testing $filename\n";
+
         if($filename =~ /$file_re/) {
             # scan @- and @+ to get text of all matches
-            my @matches = map { substr $filename, $-[$_], $+[$_] - $-[$_] } 1..$#-;
-
-            # dd { $filename => \@matches };
-
-            my $it = natatime 2, @matches;
+            my @matches
+                = map { substr $filename, $-[$_], $+[$_] - $-[$_] } 1..$#-;
 
             my @runs;
+            my $it = natatime 2, @matches;
             while(my ($not_matched, $matched) = $it->()) {
 
                 # non-matched part push as a text
@@ -131,14 +131,12 @@ sub find {
         my ($match) = @_;
         push @results, $match;
 
+        # TODO: does it make sense to stop processing? We can possibly miss
+        #       best match by skipping other entries
         return STOP if defined $max && $max-- < 0;
     });
 
     return @results;
-}
-
-sub make_match {
-
 }
 
 1;
