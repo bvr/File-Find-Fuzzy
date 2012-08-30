@@ -35,7 +35,7 @@ has directories => (
 has finder => (
     is      => 'ro',
     isa     => 'Path::Class::Rule',
-    default => sub { Path::Class::Rule->new->file->skip_vcs },
+    default => sub { Path::Class::Rule->new->skip_vcs->file },
 );
 
 has files => (
@@ -56,18 +56,8 @@ sub search {
     my ($self, $pattern, $cb) = @_;
 
     # build matching regex
-    $pattern =~ tr/ //d;
-    my @path_parts = split m{/}, $pattern, -1;  # keep also trailing field
-    my $pattern_re =
-        '^(.*?)'                    # start
-      . (join '(.*?/.*?)',          # between path parts
-            map {
-                join '([^/]*?)',    # between expected chars
-                                    # each char escaped capture
-                    map { "(\Q$_\E)" } split //
-                } @path_parts
-        )
-      . '(.*?)$';                   # end
+    my $pattern_re = _build_pattern_re($pattern);
+    warn $pattern_re,"\n";
     my $file_re = qr/$pattern_re/i;
 
     # find matching files
@@ -91,21 +81,46 @@ sub search {
 
                 # matched either add to previous or create new block
                 if(defined $matched) {
-                    if(ref $runs[-1]) { $runs[-1]{match} .= $matched      }
-                    else              { push @runs, { match => $matched } }
+                    if(ref $runs[-1]) { $runs[-1][0] .= $matched }
+                    else              { push @runs, [ $matched ] }
                 }
             }
 
             dd \@runs;
 
+            # the important question is how to score a match
+            # $run_ratio =
+            # my $score = $run_ratio * $char_ratio;
 
             # last if $cb->($file) == STOP;
         }
     }
 
-    # the important question is how to score a match
 
     warn "----\n";
+}
+
+sub _build_pattern_re {
+    my $pattern = shift;
+
+    $pattern =~ tr/ //d;
+
+    # if pattern is empty, return /^(.*)$/
+    return '^(.*)$' unless $pattern;
+
+    my @path_parts = split m{/}, $pattern, -1;  # keep also trailing field
+    my $pattern_re =
+        '^(.*?)'                    # start
+      . (join '(.*?/.*?)',          # between path parts
+            map {
+                join '([^/]*?)',    # between expected chars
+                                    # each char escaped capture
+                    map { "(\Q$_\E)" } split //
+                } @path_parts
+        )
+      . '(.*?)$';                   # end
+
+    return $pattern_re;
 }
 
 sub find {
