@@ -6,6 +6,7 @@ use MooseX::Types::Moose 'Num';
 use MooseX::Types::Path::Class;
 use Moose::Util::TypeConstraints;
 
+use List::Util      'reduce';
 use List::MoreUtils 'natatime';
 use Path::Class::Rule;
 use Data::Dump;
@@ -56,7 +57,7 @@ sub search {
     my ($self, $pattern, $cb) = @_;
 
     # build matching regex
-    my $pattern_re = _build_pattern_re($pattern);
+    my ($pattern_re, $path_segments) = _build_pattern_re($pattern);
     warn $pattern_re,"\n";
     my $file_re = qr/$pattern_re/i;
 
@@ -71,26 +72,34 @@ sub search {
             my @matches
                 = map { substr $filename, $-[$_], $+[$_] - $-[$_] } 1..$#-;
 
+            my $total_chars = 0;
+            my $inside_chars = 0;
             my @runs;
             my $it = natatime 2, @matches;
             while(my ($not_matched, $matched) = $it->()) {
 
                 # non-matched part push as a text
-                push @runs, $not_matched
-                    if length $not_matched > 0;
+                if(length $not_matched > 0) {
+                    push @runs, $not_matched;
+                    $total_chars += length $not_matched;
+                }
 
                 # matched either add to previous or create new block
                 if(defined $matched) {
+                    $inside_chars += length $matched;
+                    $total_chars  += length $matched;
                     if(ref $runs[-1]) { $runs[-1][0] .= $matched }
                     else              { push @runs, [ $matched ] }
                 }
             }
 
-            dd \@runs;
-
             # the important question is how to score a match
-            # $run_ratio =
-            # my $score = $run_ratio * $char_ratio;
+            my $inside_runs = reduce { $a + (ref($b)?1:0) } 0, @runs;
+            my $run_ratio  = $inside_runs == 0 ? 1 : $path_segments / $inside_runs;
+            my $char_ratio = $total_chars == 0 ? 1 : $inside_chars  / $total_chars;
+            my $score = $run_ratio * $char_ratio;
+
+            dd \@runs, $score
 
             # last if $cb->($file) == STOP;
         }
@@ -120,7 +129,7 @@ sub _build_pattern_re {
         )
       . '(.*?)$';                   # end
 
-    return $pattern_re;
+    return wantarray ? ($pattern_re, scalar @path_parts) : $pattern_re;
 }
 
 sub find {
