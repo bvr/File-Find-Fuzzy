@@ -11,7 +11,7 @@ use List::MoreUtils 'natatime';
 use Path::Class::Rule;
 use Data::Dump;
 
-use constant STOP => 1;
+use File::Find::Fuzzy::Found;
 
 subtype 'DirArray'
     => as 'ArrayRef[Path::Class::Dir]';
@@ -58,14 +58,14 @@ sub search {
 
     # build matching regex
     my ($pattern_re, $path_segments) = _build_pattern_re($pattern);
-    warn $pattern_re,"\n";
+    # warn $pattern_re,"\n";
     my $file_re = qr/$pattern_re/i;
 
     # find matching files
     for my $file ($self->list_files) {
         $file->resolve;
         my $filename = '' . $file->as_foreign('Unix');
-        warn "testing $filename\n";
+        # warn "testing $filename\n";
 
         if($filename =~ /$file_re/) {
             # scan @- and @+ to get text of all matches
@@ -99,14 +99,22 @@ sub search {
             my $char_ratio = $total_chars == 0 ? 1 : $inside_chars  / $total_chars;
             my $score = $run_ratio * $char_ratio;
 
-            dd \@runs, $score
-
-            # last if $cb->($file) == STOP;
+            # dd \@runs, $score
+            $cb->(File::Find::Fuzzy::Found->new( match => \@runs, score => $score));
         }
     }
+}
 
+sub find {
+    my ($self, $pattern) = @_;
 
-    warn "----\n";
+    my @results = ();
+    $self->search($pattern, sub {
+        my ($match) = @_;
+        push @results, $match;
+    });
+
+    return sort { $b->score <=> $a->score } @results;
 }
 
 sub _build_pattern_re {
@@ -130,22 +138,6 @@ sub _build_pattern_re {
       . '(.*?)$';                   # end
 
     return wantarray ? ($pattern_re, scalar @path_parts) : $pattern_re;
-}
-
-sub find {
-    my ($self, $pattern, $max) = @_;
-
-    my @results = ();
-    $self->search($pattern, sub {
-        my ($match) = @_;
-        push @results, $match;
-
-        # TODO: does it make sense to stop processing? We can possibly miss
-        #       best match by skipping other entries
-        return STOP if defined $max && $max-- < 0;
-    });
-
-    return @results;
 }
 
 1;
