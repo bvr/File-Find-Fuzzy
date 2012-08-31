@@ -2,16 +2,16 @@ package File::Find::Fuzzy;
 # ABSTRACT: The "fuzzy" file finder provides a way for searching a directory tree with only a partial name.
 
 use Moose;
-use MooseX::Types::Moose 'Num';
-use MooseX::Types::Path::Class;
-use Moose::Util::TypeConstraints;
 
+use Path::Class;
+use Path::Class::Rule;
 use List::Util      'reduce';
 use List::MoreUtils 'natatime';
-use Path::Class::Rule;
-use Data::Dump;
 
 use File::Find::Fuzzy::Found;
+
+# define types and coercion
+use Moose::Util::TypeConstraints;
 
 subtype 'DirArray'
     => as 'ArrayRef[Path::Class::Dir]';
@@ -22,16 +22,42 @@ coerce 'DirArray'
 
 no Moose::Util::TypeConstraints;
 
-has ceiling => (is => 'ro', isa => Num, default => 10_000);
+=attr directories
+
+    my $fff = File::Find::Fuzzy->new(directories => [ 'some_path' ]);
+    my @dirs = $fff->directories();
+
+Allows to specify directories to locate files. The value is arrayref of either
+strings or L<Path::Class::Dir> objects. Strings are automatically turned into
+the objects internally.
+
+By default it looks in current directory.
+
+=cut
 
 has directories => (
-    is      => 'rw',
     traits  => ['Array'],
     isa     => 'DirArray',
     coerce  => 1,
     default => sub { [] },
-    handles => {list_directories => 'elements'},
+    handles => {directories => 'elements'},
 );
+
+=attr finder
+
+    my $fff = File::Find::Fuzzy->new(
+        finder => Path::Class::Rule->new->skip_dirs('backup')->iname('*.cpp')
+    );
+    my $fff = File::Find::Fuzzy->new(
+        finder => Path::Class::Rule->new->perl_files
+    );
+
+A L<Path::Class::Rule> object used to recursively scan the directories for
+files. You can specify arbitrarily complex rule to filter out unwanted entries.
+
+By default it looks for all files with skipping of VCS-related files.
+
+=cut
 
 has finder => (
     is      => 'ro',
@@ -39,33 +65,54 @@ has finder => (
     default => sub { Path::Class::Rule->new->skip_vcs->file },
 );
 
+=attr files
+
+    my @files = $fff->files;
+
+Lazy attribute that is automatically populated with L<Path::Class::File>
+objects using L</finder> and L</directories>. You can also specify own
+list of files in constructor.
+
+=cut
+
 has files => (
-    is      => 'rw',
     traits  => ['Array'],
     isa     => 'ArrayRef[Path::Class::File]',
     lazy_build => 1,
-    handles => {list_files => 'elements'},
+    handles => {files => 'elements'},
 );
 
 sub _build_files {
     my $self = shift;
 
-    return [ $self->finder->all($self->list_directories) ];
+    return [ $self->finder->all($self->directories) ];
 }
+
+=method search
+
+    $fff->search('path/file', sub {
+        my $match = shift;
+        say $match->to_string;
+    });
+
+Looks for specified pattern in L</files>, running the callback for each
+match. The callback is supplied the L<File::Find::Fuzzy::Found> object
+that can stringify and has calculated score of the match (higher the
+closer match).
+
+=cut
 
 sub search {
     my ($self, $pattern, $cb) = @_;
 
     # build matching regex
     my ($pattern_re, $path_segments) = _build_pattern_re($pattern);
-    # warn $pattern_re,"\n";
     my $file_re = qr/$pattern_re/i;
 
     # find matching files
-    for my $file ($self->list_files) {
+    for my $file ($self->files) {
         $file->resolve;
         my $filename = '' . $file->as_foreign('Unix');
-        # warn "testing $filename\n";
 
         if($filename =~ /$file_re/) {
             # scan @- and @+ to get text of all matches
@@ -99,11 +146,19 @@ sub search {
             my $char_ratio = $total_chars == 0 ? 1 : $inside_chars  / $total_chars;
             my $score = $run_ratio * $char_ratio;
 
-            # dd \@runs, $score
             $cb->(File::Find::Fuzzy::Found->new( match => \@runs, score => $score));
         }
     }
 }
+
+=method find
+
+    my @matches = $fff->find('pattern');
+
+Returns list of matches (L<File::Find::Fuzzy::Found> objects) sorted by score.
+The closest matches comes first.
+
+=cut
 
 sub find {
     my ($self, $pattern) = @_;
@@ -142,29 +197,13 @@ sub _build_pattern_re {
 
 1;
 
-
-=head2 Overview of functionality
-
- - directories to start with
- - array of ignores - list of patterns to skip during follow_tree
- - determines shared prefix
-
- - rescan (clears list of files and scan all roots)
-   - uses follow_tree(dir) ... recursive descent (use Path::Class::Rule instead)
-
- - search call a block with found item
-
- - find a shortcut to search, returning results in an array
-
- - rather important method make_pattern(string), which builds a RE string
-
 =head1 SYNOPSIS
 
     use File::Find::Fuzzy;
 
     my $finder = File::Find::Fuzzy->new;
-    for my $match ($finder->search("app/blogcon")) {
-        print $match->highlighted_path,"\n";
+    for my $match ($finder->find("app/blogcon")) {
+        print $match->to_string,"\n";
     }
 
 =head1 DESCRIPTION
@@ -188,5 +227,12 @@ In other words, "app/blogcon" would match any of the following
 * test/(app)/(blog)_(con)troller_test.rb
 
 And so forth.
+
+=head1 CREDITS
+
+This modules is B<fuzzy_file_finder>
+(L<https://github.com/jamis/fuzzy_file_finder>) adapted to perl. The regex
+building, scoring algorithm and parts of documentation are borrowed from that
+distribution.
 
 =cut
