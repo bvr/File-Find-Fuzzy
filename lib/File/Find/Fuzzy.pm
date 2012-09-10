@@ -71,7 +71,7 @@ has finder => (
 
 Lazy attribute that is automatically populated with L<Path::Class::File>
 objects using L</finder> and L</directories>. You can also specify own
-list of files in constructor.
+list of files in constructor, effectively skipping all traversal process.
 
 =cut
 
@@ -146,7 +146,11 @@ sub search {
             my $char_ratio = $total_chars == 0 ? 1 : $inside_chars  / $total_chars;
             my $score = $run_ratio * $char_ratio;
 
-            $cb->(File::Find::Fuzzy::Found->new( match => \@runs, score => $score));
+            $cb->(File::Find::Fuzzy::Found->new( 
+                match => \@runs, 
+                score => $score,
+                file  => $file,
+            ));
         }
     }
 }
